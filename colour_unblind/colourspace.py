@@ -13,17 +13,19 @@ BT709_LUMA = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
 _ENCODE_STEPS = 65535
 
 
-def _srgb_decode(v: np.ndarray) -> np.ndarray:
+def srgb_decode(v: np.ndarray) -> np.ndarray:
+    """sRGB-encoded values in [0, 1] -> linear."""
     return np.where(v <= 0.04045, v / 12.92, ((v + 0.055) / 1.055) ** 2.4)
 
 
-def _srgb_encode(v: np.ndarray) -> np.ndarray:
+def srgb_encode(v: np.ndarray) -> np.ndarray:
+    """Linear values in [0, 1] -> sRGB-encoded."""
     return np.where(v <= 0.0031308, v * 12.92, 1.055 * v ** (1 / 2.4) - 0.055)
 
 
-_DECODE_LUT = _srgb_decode(np.arange(256) / 255.0).astype(np.float32)
+_DECODE_LUT = srgb_decode(np.arange(256) / 255.0).astype(np.float32)
 _ENCODE_LUT = np.round(
-    _srgb_encode(np.linspace(0.0, 1.0, _ENCODE_STEPS + 1)) * 255.0
+    srgb_encode(np.linspace(0.0, 1.0, _ENCODE_STEPS + 1)) * 255.0
 ).astype(np.uint8)
 
 
