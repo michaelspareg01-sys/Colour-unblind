@@ -39,11 +39,15 @@ def srgb8_to_linear(values: np.ndarray) -> np.ndarray:
     return _DECODE_LUT[values]
 
 
+def linear_to_srgb8(values: np.ndarray) -> np.ndarray:
+    """Linear float values of any shape -> sRGB-encoded uint8, clipped."""
+    clipped = np.clip(np.nan_to_num(values, nan=0.0), 0.0, 1.0)
+    return _ENCODE_LUT[(clipped * _ENCODE_STEPS + 0.5).astype(np.uint16)]
+
+
 def linear_to_bgr(img: np.ndarray) -> np.ndarray:
     """Linear RGB float -> BGR uint8 frame. Out-of-gamut values are clipped."""
-    clipped = np.clip(np.nan_to_num(img, nan=0.0), 0.0, 1.0)
-    idx = (clipped * _ENCODE_STEPS + 0.5).astype(np.uint16)
-    return np.ascontiguousarray(_ENCODE_LUT[idx][..., ::-1])
+    return np.ascontiguousarray(linear_to_srgb8(img)[..., ::-1])
 
 
 def apply_matrix(img: np.ndarray, m: np.ndarray) -> np.ndarray:

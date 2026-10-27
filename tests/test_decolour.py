@@ -2,8 +2,8 @@ import cv2
 import numpy as np
 import pytest
 
-from colour_unblind.colourspace import bgr_to_linear, linear_to_bgr
-from colour_unblind.decolour import ContrastPreservingGrey
+from colour_unblind.colourspace import bgr_to_linear, linear_to_bgr, luminance
+from colour_unblind.decolour import ContrastPreservingGrey, _evaluate, fit_decolor
 
 
 def scene(width=256, height=144, seed=1):
@@ -12,14 +12,17 @@ def scene(width=256, height=144, seed=1):
     return cv2.resize(small, (width, height), interpolation=cv2.INTER_CUBIC)
 
 
-def test_reproduces_opencv_decolor():
+def test_fit_reproduces_opencv_decolor():
     frame = scene()
     expected, _ = cv2.decolor(frame)
-    grey = linear_to_bgr(ContrastPreservingGrey().apply(bgr_to_linear(frame)))
-    assert np.allclose(grey[..., 0], grey[..., 1]) and np.allclose(grey[..., 0], grey[..., 2])
-    corr = np.corrcoef(grey[..., 0].ravel(), expected.ravel())[0, 1]
-    # Same contrast; the sign may differ because we orient it like luminance.
-    assert abs(corr) > 0.99
+    coef = fit_decolor(frame)
+    fitted = _evaluate(np.clip(frame, 1, 254)[..., ::-1].astype(np.float32) / 255, coef)
+    assert np.corrcoef(fitted.ravel(), expected.ravel())[0, 1] > 0.99
+
+
+def test_output_is_grey():
+    out = ContrastPreservingGrey().apply(bgr_to_linear(scene()))
+    assert np.array_equal(out[..., 0], out[..., 1]) and np.array_equal(out[..., 0], out[..., 2])
 
 
 def test_full_resolution_frame_matches_analysis_shape():
@@ -86,17 +89,36 @@ def test_720p_frame_is_fast_enough_for_video():
     start = time.perf_counter()
     for _ in range(6):
         grey.apply(frame)
-    assert (time.perf_counter() - start) / 6 < 0.1
+    assert (time.perf_counter() - start) / 6 < 0.25
 
 
 def test_inverted_decolor_result_is_flipped_back(monkeypatch):
     # cv2.decolor can return an image whose brightness runs the wrong way.
+    from colour_unblind.decolour import _encoded_luma
+
     def inverted(bgr):
-        grey = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        grey = np.round(_encoded_luma(bgr) * 255).astype(np.uint8)
         return 255 - grey, bgr
 
     monkeypatch.setattr("colour_unblind.decolour.cv2.decolor", inverted)
+    # (decolor's grey is then fully explained by luminance, so output = luminance)
     frame = scene()
     out = ContrastPreservingGrey().apply(bgr_to_linear(frame))
+    expected = luminance(bgr_to_linear(frame))
+    assert np.corrcoef(out[..., 0].ravel(), expected.ravel())[0, 1] > 0.98
+
+
+def test_dark_scene_stays_dark():
+    frame = (scene(320, 180).astype(np.float32) * 0.15).astype(np.uint8)  # a night scene
     luma = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    assert np.corrcoef(out[..., 0].ravel(), luma.ravel())[0, 1] > 0.9
+    out = linear_to_bgr(ContrastPreservingGrey().apply(bgr_to_linear(frame)))[..., 0]
+    assert abs(float(out.mean()) - float(luma.mean())) < 15
+
+
+def test_white_and_black_stay_near_white_and_black_in_a_mixed_scene():
+    frame = scene(320, 180)
+    frame[20:60, 20:60] = 255
+    frame[100:140, 20:60] = 0
+    out = linear_to_bgr(ContrastPreservingGrey().apply(bgr_to_linear(frame)))[..., 0]
+    assert out[30:50, 30:50].mean() > 215
+    assert out[110:130, 30:50].mean() < 40

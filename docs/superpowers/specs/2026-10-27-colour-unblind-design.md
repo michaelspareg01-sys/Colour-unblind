@@ -66,7 +66,11 @@ per-frame optimisation would flicker. OpenCV's implementation produces a
 degree-2 polynomial in R, G, B followed by a min-max stretch, so we run it on
 a downscaled frame, least-squares fit the 9 polynomial terms plus a constant,
 smooth those coefficients over time (exponential moving average, our choice:
-weight 0.1 for each new frame), and apply them at full resolution.
+weight 0.1 for each new fit), and apply them at full resolution.
+
+Amended after review: decolor ignores absolute brightness, so the output is
+luminance plus only the part of decolor's grey that luminance does not
+explain (scaled to at most the scene's brightness spread, at least 0.12).
 
 ## How it works
 
@@ -81,14 +85,15 @@ weight 0.1 for each new frame), and apply them at full resolution.
     Recoloured as the viewer sees it. Each tile labelled.
 - `--severity 0..1` for protan/deutan/tritan simulation (default 1.0).
 - Files: read with OpenCV; write by piping raw frames into `ffmpeg` (H.264,
-  yuv420p), copying the input's audio (re-encoded to AAC). If `ffmpeg` is
+  yuv420p, BT.709 tagged), copying the input's audio (re-encoded to AAC).
+  Frames are placed on a constant-rate timeline by their timestamps (VFR input). If `ffmpeg` is
   missing, fall back to OpenCV's writer with no audio and print a warning.
 - Live: OpenCV window. Keys: `m` cycle mode, `v` cycle viewer, `q`/Esc quit.
 
 ## Calls left to the builder (marked as Claude's calls)
 
 - Package name `colour_unblind`, console script `colour-unblind`.
-- EMA weight 0.1 and a 256-pixel-wide analysis frame for decolorisation.
+- EMA weight 0.1, a 160-pixel-wide analysis frame refitted every 3 frames for decolorisation.
 - Default blur 0 (off); viewing distance and screen size decide what blur is
   realistic, and we don't know them.
 - Rod monochromats see with rods (peak ~507 nm), so reds look darker to them

@@ -57,6 +57,8 @@ Output goes next to the input as `NAME_MODE_VIEWER.mp4` unless you give `-o`.
 
 - `--severity 0..1`: how strong a protan, deutan or tritan deficiency is, for
   simulations. 1 (default) is full dichromacy; 0.5 is a milder "anomalous" form.
+  Between 0.99 and 1 the model switches from Machado to Viénot, so the output
+  jumps slightly there. It has no effect on cats, achromats or recolouring.
 - `--strength`: how hard to push the recolouring. 1 (default) matches Android's
   built-in colour correction. 0 changes nothing.
 - `--blur SIGMA`: blur simulations by a Gaussian of this many pixels. Cats see
@@ -90,15 +92,18 @@ were "chosen arbitrarily"; `--strength` scales them.
 
 **Recolouring for achromats** can't add colour, so it turns colour differences
 into brightness differences. It uses Lu, Xu & Jia (2012), *Contrast preserving
-decolorization* (ICCP), through OpenCV's `cv2.decolor`. To make that fast and
-steady enough for video, the tool:
+decolorization* (ICCP), through OpenCV's `cv2.decolor`. Used directly, that is
+slow and ignores real brightness (every frame gets stretched to full black and
+white, so night scenes turn mid-grey). So the tool:
 
-- runs it on a small copy of every third frame;
-- fits the same degree-2 colour polynomial OpenCV uses;
-- blends the fit into a running average;
-- flips any fit whose brightness comes out backwards, so dark things stay dark.
+1. runs it on a small copy of every third frame;
+2. fits the same degree-2 colour polynomial OpenCV uses;
+3. outputs ordinary brightness plus only the part of decolor's grey that
+   brightness doesn't already explain, i.e. the colour-only contrast;
+4. blends each new fit into a running average so the picture doesn't flicker.
 
-The last three steps are the tool's own additions.
+Steps 1, 3 and 4 are the tool's own additions. Brightness stays true: dark
+scenes stay dark and white stays white.
 
 **Cats.** Clark & Clark (2016), [*Neutral point testing of color vision in the
 domestic cat*](https://pubmed.ncbi.nlm.nih.gov/27720709/), Experimental Eye
@@ -118,11 +123,17 @@ and dogs. That's what `--blur` is for.
   the simulation shows.
 - The cat model covers colour (and optionally sharpness). It doesn't model cats'
   better night vision, wider field of view or motion sensitivity.
-- Achromat recolouring adapts to the scene over about a second, and on frames
-  made of only a few flat colours (some slides and graphics) `cv2.decolor` gives
-  no answer, so the tool falls back to plain luminance there.
-- Output is H.264 MP4 with the original audio re-encoded as AAC. Odd frame sizes
-  lose one pixel so the file plays everywhere. Without ffmpeg, output has no audio.
+- Achromat recolouring is one greyscale mapping per scene, so it can't keep
+  every pair of colours apart. It adapts to scene changes over a couple of
+  seconds. On frames made of only a few flat colours (some slides and graphics)
+  `cv2.decolor` gives no answer, so the tool keeps the last good mapping, or
+  plain brightness if there is none yet.
+- Output is H.264 video, tagged BT.709, with the original audio re-encoded as
+  AAC, so use `.mp4`, `.mov` or `.mkv`. Odd frame sizes lose one pixel so the
+  file plays everywhere. Variable-frame-rate input (common from phones and
+  screen recorders) is turned into constant frame rate so the sound stays in
+  sync. Without ffmpeg, output has no audio.
+- The output file only appears once processing has finished successfully.
 
 ## Try it on a test plate
 

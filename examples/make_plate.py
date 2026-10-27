@@ -42,4 +42,5 @@ if __name__ == "__main__":
     viewer, out = sys.argv[1], sys.argv[2]
     bgr, mask = plate(viewer)
     cv2.imwrite(out, bgr)
-    cv2.imwrite(out.replace(".png", "_mask.png"), mask)
+    stem, dot, ext = out.rpartition(".")
+    cv2.imwrite(f"{stem}_mask.{ext}" if dot else f"{out}_mask.png", mask)
