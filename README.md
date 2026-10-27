@@ -41,7 +41,8 @@ colour-unblind live
 
 Output goes next to the input as `NAME_MODE_VIEWER.mp4` unless you give `-o`.
 
-**Webcam keys:** `m` next mode, `v` next viewer, `q` or `Esc` quit.
+**Webcam keys:** `m` next mode, `v` next viewer, `q` or `Esc` quit. If the picture doesn't
+appear, try `--camera 1`; the tool waits about 3 seconds for a slow webcam to start.
 
 ### Viewers
 
@@ -59,8 +60,12 @@ Output goes next to the input as `NAME_MODE_VIEWER.mp4` unless you give `-o`.
   simulations. 1 (default) is full dichromacy; 0.5 is a milder "anomalous" form.
   Between 0.99 and 1 the model switches from Machado to Viénot, so the output
   jumps slightly there. It has no effect on cats, achromats or recolouring.
-- `--strength`: how hard to push the recolouring. 1 (default) matches Android's
-  built-in colour correction. 0 changes nothing.
+- `--strength 0..2`: how hard to push the recolouring. 1 (default) matches
+  Android's built-in colour correction. 0 changes nothing. It has no effect on
+  achromats or in simulate mode.
+
+The tool prints a warning when an option you gave has no effect, and when a
+damaged input file stops decoding early.
 - `--blur SIGMA`: blur simulations by a Gaussian of this many pixels. Cats see
   less detail than we do (below); how many pixels that is depends on your
   screen and how far away you sit, so it's off by default.

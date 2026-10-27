@@ -83,6 +83,11 @@ class _OpenCvWriter:
     abort = close
 
 
+def _expected_frames(cap) -> int:
+    """The container's frame count (an estimate; 0 if unknown)."""
+    return int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+
 def _frame_rate(cap) -> float:
     fps = cap.get(cv2.CAP_PROP_FPS)
     return fps if math.isfinite(fps) and 0 < fps <= 240 else 30.0
@@ -113,7 +118,7 @@ def process_video(source, output, processor: FrameProcessor, progress: bool = Tr
 
 def _process(cap, source: Path, output: Path, processor: FrameProcessor, progress: bool) -> int:
     fps = _frame_rate(cap)
-    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    total = _expected_frames(cap)
     ok, frame = cap.read()
     if not ok:
         raise ValueError(f"no frames in video: {source}")
@@ -157,4 +162,9 @@ def _process(cap, source: Path, output: Path, processor: FrameProcessor, progres
         raise
     if progress:
         print(f"\rprocessed {decoded} frames -> {output}", file=sys.stderr)
+    # ``written`` counts output time slots, so VFR sources compare fairly. The
+    # 90% margin allows for the container's frame count being an estimate.
+    if total > 0 and written < 0.9 * total:
+        print(f"warning: only {written} of about {total} frames could be read; "
+              "the input file may be damaged, so the output may be cut short", file=sys.stderr)
     return written

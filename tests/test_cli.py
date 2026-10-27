@@ -85,3 +85,54 @@ def test_falls_back_to_opencv_without_ffmpeg(tmp_path, monkeypatch, capsys):
     assert "without audio" in capsys.readouterr().err
     info = probe(out)
     assert info["frames"] == 10 and info["audio"] is False
+
+
+@pytest.mark.parametrize("argv,warning", [
+    (["recolour", "--severity", "0.5"], "--severity"),
+    (["simulate", "--viewer", "cat", "--severity", "0.5"], "--severity"),
+    (["simulate", "--strength", "0.5"], "--strength"),
+    (["recolour", "--viewer", "achromat", "--strength", "0.5"], "--strength"),
+])
+def test_warns_about_options_that_do_nothing(tmp_path, capsys, argv, warning):
+    main(argv[:1] + [str(tmp_path / "missing.mp4")] + argv[1:])
+    err = capsys.readouterr().err
+    assert f"warning: {warning}" in err
+
+
+def test_no_warning_when_options_apply(tmp_path, capsys):
+    main(["compare", str(tmp_path / "missing.mp4"), "--severity", "0.5", "--strength", "0.5"])
+    assert "warning:" not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("bad", ["-0.5", "2.5", "nan"])
+def test_strength_out_of_range_is_an_error(tmp_path, capsys, bad):
+    assert main(["recolour", str(tmp_path / "x.mp4"), "--strength", bad]) == 1
+    assert "error: strength must be" in capsys.readouterr().err
+
+
+@needs_ffmpeg
+def test_warns_when_decoding_stops_far_short(tmp_path, monkeypatch, capsys):
+    src = make_clip(tmp_path / "in.mp4")
+    monkeypatch.setattr("colour_unblind.video._expected_frames", lambda cap: 100)
+    process_video(src, tmp_path / "out.mp4", FrameProcessor("cat", "simulate"), progress=False)
+    assert "may be damaged" in capsys.readouterr().err
+
+
+@needs_ffmpeg
+def test_no_damage_warning_for_a_healthy_file(tmp_path, capsys):
+    src = make_clip(tmp_path / "in.mp4")
+    process_video(src, tmp_path / "out.mp4", FrameProcessor("cat", "simulate"), progress=False)
+    assert "may be damaged" not in capsys.readouterr().err
+
+
+def test_opencv_errors_are_clean_cli_errors(tmp_path, monkeypatch, capsys):
+    import cv2
+
+    def explode(*args, **kwargs):
+        raise cv2.error("simulated OpenCV failure")
+
+    monkeypatch.setattr("colour_unblind.video.process_video", explode)
+    src = tmp_path / "in.mp4"
+    src.write_bytes(b"x")
+    assert main(["simulate", str(src)]) == 1
+    assert "error:" in capsys.readouterr().err

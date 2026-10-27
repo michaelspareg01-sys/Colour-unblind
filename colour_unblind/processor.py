@@ -9,6 +9,10 @@ from colour_unblind.simulate import VIEWERS, simulation_for
 
 MODES = ("simulate", "recolour", "compare")
 
+# Upper limit on --strength, our choice: beyond 2x Android's spread, colours
+# mostly just clip.
+MAX_STRENGTH = 2.0
+
 VIEWER_NAMES = {
     "protan": "protan (red-blind)",
     "deutan": "deutan (green-blind)",
@@ -50,8 +54,10 @@ class FrameProcessor:
                  strength: float = 1.0, blur: float = 0.0):
         if mode not in MODES:
             raise ValueError(f"unknown mode {mode!r}; choose from {', '.join(MODES)}")
-        if blur < 0:
+        if not blur >= 0:
             raise ValueError(f"blur must be >= 0, got {blur}")
+        if not 0 <= strength <= MAX_STRENGTH:
+            raise ValueError(f"strength must be between 0 and {MAX_STRENGTH:g}, got {strength}")
         self.viewer, self.mode = viewer, mode
         self.severity, self.strength, self.blur = severity, strength, blur
         self._simulation = simulation_for(viewer, severity)

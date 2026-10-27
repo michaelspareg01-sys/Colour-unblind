@@ -4,6 +4,8 @@ import argparse
 import sys
 from pathlib import Path
 
+import cv2
+
 from colour_unblind.processor import MODES, VIEWER_NAMES, VIEWERS, FrameProcessor
 
 MODE_HELP = {
@@ -24,6 +26,19 @@ def _add_common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--blur", type=float, default=0.0,
                    help="blur simulations by this Gaussian sigma in pixels, e.g. for cats' "
                         "lower acuity (default 0, off)")
+
+
+def ignored_options(viewer: str, mode: str, severity: float, strength: float) -> list[str]:
+    """Warnings for options that will have no effect with this viewer and mode."""
+    warnings = []
+    if severity != 1.0 and (viewer in ("cat", "achromat") or mode == "recolour"):
+        why = f"the {viewer} viewer" if viewer in ("cat", "achromat") else "recolour mode"
+        warnings.append(f"--severity has no effect with {why} (it only changes protan, "
+                        "deutan and tritan simulations)")
+    if strength != 1.0 and (viewer == "achromat" or mode == "simulate"):
+        why = "the achromat viewer" if viewer == "achromat" else "simulate mode"
+        warnings.append(f"--strength has no effect with {why}")
+    return warnings
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -53,6 +68,10 @@ def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     try:
         mode = args.mode if args.command == "live" else args.command
+        # Live mode can switch to every mode, so judge it as compare (uses both).
+        for warning in ignored_options(args.viewer, "compare" if args.command == "live" else mode,
+                                       args.severity, args.strength):
+            print(f"warning: {warning}", file=sys.stderr)
         processor = FrameProcessor(args.viewer, mode, args.severity, args.strength, args.blur)
         if args.command == "live":
             from colour_unblind.live import open_camera, run_live
@@ -63,7 +82,7 @@ def main(argv=None) -> int:
         output = args.output or args.input.with_name(f"{args.input.stem}_{mode}_{args.viewer}.mp4")
         process_video(args.input, output, processor, progress=not args.quiet)
         return 0
-    except (OSError, ValueError, RuntimeError) as exc:
+    except (OSError, ValueError, RuntimeError, cv2.error) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

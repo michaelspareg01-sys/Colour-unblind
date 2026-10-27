@@ -1,11 +1,17 @@
 """Live webcam view. Keys: m = next mode, v = next viewer, q or Esc = quit."""
 
+import sys
+import time
+
 import cv2
 
 from colour_unblind.processor import MODES, VIEWER_NAMES, VIEWERS, FrameProcessor
 
 WINDOW = "Colour Unblind"
 _ESC = 27
+# Webcams often fail their first reads while starting up, and can drop the odd
+# frame. Give up after this many failed reads in a row (~3 s at the default delay).
+MAX_FAILED_READS = 100
 
 
 def open_camera(index: int = 0) -> cv2.VideoCapture:
@@ -40,17 +46,28 @@ def _wait_key_in_window() -> int:
     return key
 
 
-def run_live(processor: FrameProcessor, capture, show=None, wait_key=None) -> FrameProcessor:
+def run_live(processor: FrameProcessor, capture, show=None, wait_key=None,
+             retry_delay: float = 0.03) -> FrameProcessor:
     """Show processed camera frames until the camera stops or the user quits.
     Returns the processor in its final mode/viewer."""
     windowed = show is None
     show = show or _show_in_window
     wait_key = wait_key or _wait_key_in_window
+    frames = failures = 0
     try:
         while True:
             ok, frame = capture.read()
             if not ok:
+                failures += 1
+                if failures < MAX_FAILED_READS:
+                    time.sleep(retry_delay)
+                    continue
+                if frames == 0:
+                    raise RuntimeError("the camera opened but sent no frames; is another app using it?")
+                print("the camera stopped sending frames", file=sys.stderr)
                 break
+            frames += 1
+            failures = 0
             out = processor.process(frame)
             _status(out, processor)
             show(out)
