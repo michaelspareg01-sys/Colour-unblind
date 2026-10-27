@@ -1,0 +1,9 @@
+.superpowers/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+*.mp4
+!tests/data/*.mp4
+build/
+dist/
+.venv/
