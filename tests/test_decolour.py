@@ -18,7 +18,8 @@ def test_reproduces_opencv_decolor():
     grey = linear_to_bgr(ContrastPreservingGrey().apply(bgr_to_linear(frame)))
     assert np.allclose(grey[..., 0], grey[..., 1]) and np.allclose(grey[..., 0], grey[..., 2])
     corr = np.corrcoef(grey[..., 0].ravel(), expected.ravel())[0, 1]
-    assert corr > 0.99
+    # Same contrast; the sign may differ because we orient it like luminance.
+    assert abs(corr) > 0.99
 
 
 def test_full_resolution_frame_matches_analysis_shape():
@@ -56,3 +57,46 @@ def test_flat_frame_does_not_blow_up():
 def test_smoothing_must_be_in_range():
     with pytest.raises(ValueError):
         ContrastPreservingGrey(smoothing=0.0)
+
+
+def test_factored_polynomial_matches_feature_form():
+    from colour_unblind.decolour import _evaluate, _features
+    rng = np.random.default_rng(3)
+    rgb = rng.random((20, 30, 3), dtype=np.float32)
+    coef = rng.normal(size=10).astype(np.float32)
+    np.testing.assert_allclose(_evaluate(rgb, coef), _features(rgb) @ coef, rtol=1e-5, atol=1e-5)
+
+
+def test_refits_only_every_few_frames(monkeypatch):
+    grey = ContrastPreservingGrey(refit_every=3)
+    calls = []
+    real_fit = grey._fit
+    monkeypatch.setattr(grey, "_fit", lambda bgr: calls.append(1) or real_fit(bgr))
+    frame = bgr_to_linear(scene())
+    for _ in range(7):
+        grey.apply(frame)
+    assert len(calls) == 3  # frames 1, 4 and 7
+
+
+def test_720p_frame_is_fast_enough_for_video():
+    import time
+    grey = ContrastPreservingGrey()
+    frame = bgr_to_linear(scene(1280, 720))
+    grey.apply(frame)
+    start = time.perf_counter()
+    for _ in range(6):
+        grey.apply(frame)
+    assert (time.perf_counter() - start) / 6 < 0.1
+
+
+def test_inverted_decolor_result_is_flipped_back(monkeypatch):
+    # cv2.decolor can return an image whose brightness runs the wrong way.
+    def inverted(bgr):
+        grey = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        return 255 - grey, bgr
+
+    monkeypatch.setattr("colour_unblind.decolour.cv2.decolor", inverted)
+    frame = scene()
+    out = ContrastPreservingGrey().apply(bgr_to_linear(frame))
+    luma = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    assert np.corrcoef(out[..., 0].ravel(), luma.ravel())[0, 1] > 0.9

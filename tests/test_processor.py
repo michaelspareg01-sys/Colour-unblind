@@ -67,3 +67,17 @@ def test_rejects_bad_arguments():
         FrameProcessor("cat", "paint")
     with pytest.raises(ValueError):
         FrameProcessor("cat", "simulate", blur=-1)
+
+
+def test_labels_use_the_right_article():
+    from colour_unblind.processor import tile_titles
+    assert tile_titles("achromat")[1] == "How an achromat (no colour) sees it"
+    assert tile_titles("cat")[3] == "Recoloured, as a cat sees it"
+
+
+def test_label_never_runs_off_a_narrow_tile():
+    from colour_unblind.processor import _label
+    tile = np.full((240, 200, 3), 255, dtype=np.uint8)
+    _label(tile, "Recoloured, as an achromat (no colour) sees it")
+    assert tile[:, -2:].min() == 255  # right edge untouched
+    assert tile[:, :100].min() < 255  # but something was drawn

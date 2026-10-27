@@ -34,6 +34,11 @@ def bgr_to_linear(frame: np.ndarray) -> np.ndarray:
     return _DECODE_LUT[frame[..., ::-1]]
 
 
+def srgb8_to_linear(values: np.ndarray) -> np.ndarray:
+    """sRGB-encoded uint8 values of any shape -> linear float32."""
+    return _DECODE_LUT[values]
+
+
 def linear_to_bgr(img: np.ndarray) -> np.ndarray:
     """Linear RGB float -> BGR uint8 frame. Out-of-gamut values are clipped."""
     clipped = np.clip(np.nan_to_num(img, nan=0.0), 0.0, 1.0)

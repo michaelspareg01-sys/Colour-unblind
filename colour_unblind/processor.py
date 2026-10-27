@@ -18,15 +18,26 @@ VIEWER_NAMES = {
 }
 
 
+def tile_titles(viewer: str) -> tuple[str, str, str, str]:
+    """Titles of the four compare tiles, in reading order."""
+    name = VIEWER_NAMES[viewer]
+    a = "an" if name[0] in "aeiou" else "a"
+    return ("Original", f"How {a} {name} sees it", "Recoloured", f"Recoloured, as {a} {name} sees it")
+
+
 def _label(tile: np.ndarray, text: str) -> None:
-    """Draw ``text`` on a dark strip across the top of ``tile``, in place."""
+    """Draw ``text`` on a dark strip across the top of ``tile``, in place,
+    shrinking it to fit the tile's width."""
+    font = cv2.FONT_HERSHEY_SIMPLEX
     scale = max(0.35, tile.shape[0] / 500)
+    width = cv2.getTextSize(text, font, scale, 1)[0][0]
+    scale *= min(1.0, (tile.shape[1] * 0.9) / (width * 1.1))
     thickness = max(1, round(scale * 1.5))
-    (tw, th), base = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)
+    (tw, th), base = cv2.getTextSize(text, font, scale, thickness)
     pad = max(3, th // 3)
     strip = tile[: th + base + 2 * pad, : tw + 2 * pad]
     strip[:] = strip // 3
-    cv2.putText(tile, text, (pad, pad + th), cv2.FONT_HERSHEY_SIMPLEX, scale,
+    cv2.putText(tile, text, (pad, pad + th), font, scale,
                 (255, 255, 255), thickness, cv2.LINE_AA)
 
 
@@ -72,13 +83,13 @@ class FrameProcessor:
         small = cv2.resize(frame, (w1, h1), interpolation=cv2.INTER_AREA)
         linear = bgr_to_linear(small)
         recoloured = np.clip(self._recolour.apply(linear), 0.0, 1.0)
-        name = VIEWER_NAMES[self.viewer]
-        tiles = [
-            (small.copy(), "Original"),
-            (linear_to_bgr(self._simulate(linear)), f"How a {name} sees it"),
-            (linear_to_bgr(recoloured), "Recoloured"),
-            (linear_to_bgr(self._simulate(recoloured)), f"Recoloured, as a {name} sees it"),
+        images = [
+            small.copy(),
+            linear_to_bgr(self._simulate(linear)),
+            linear_to_bgr(recoloured),
+            linear_to_bgr(self._simulate(recoloured)),
         ]
+        tiles = zip(images, tile_titles(self.viewer))
         out = np.empty_like(frame)
         cells = [(0, 0, w1, h1), (w1, 0, w - w1, h1), (0, h1, w1, h - h1), (w1, h1, w - w1, h - h1)]
         for (tile, text), (x, y, tw, th) in zip(tiles, cells):

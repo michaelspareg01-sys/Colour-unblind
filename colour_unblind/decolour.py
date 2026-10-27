@@ -15,7 +15,7 @@ coefficients over time, and apply them at full resolution.
 import cv2
 import numpy as np
 
-from colour_unblind.colourspace import luminance, srgb_decode, srgb_encode
+from colour_unblind.colourspace import linear_to_bgr, luminance, srgb8_to_linear
 
 
 def _features(rgb: np.ndarray) -> np.ndarray:
@@ -24,44 +24,63 @@ def _features(rgb: np.ndarray) -> np.ndarray:
     return np.stack([np.ones_like(r), r, g, b, r * r, g * g, b * b, r * g, r * b, g * b], axis=-1)
 
 
-class ContrastPreservingGrey:
-    """Stateful, so one instance should handle one video stream."""
+def _evaluate(rgb: np.ndarray, c: np.ndarray) -> np.ndarray:
+    """``_features(rgb) @ c``, factored to avoid building the feature stack."""
+    r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+    return c[0] + r * (c[1] + c[4] * r + c[7] * g + c[8] * b) + g * (c[2] + c[5] * g + c[9] * b) + b * (c[3] + c[6] * b)
 
-    def __init__(self, analysis_width: int = 256, smoothing: float = 0.1):
+
+class ContrastPreservingGrey:
+    """Stateful, so one instance should handle one video stream. The mapping
+    is refitted every ``refit_every`` frames and blended into the running one
+    with weight ``smoothing`` (both our choices, to avoid flicker and save time)."""
+
+    def __init__(self, analysis_width: int = 160, smoothing: float = 0.1, refit_every: int = 3):
         if not 0.0 < smoothing <= 1.0:
             raise ValueError(f"smoothing must be in (0, 1], got {smoothing}")
         self.analysis_width = analysis_width
         self.smoothing = smoothing
+        self.refit_every = max(1, refit_every)
         self.coefficients: np.ndarray | None = None
+        self._frames = 0
 
-    def _fit(self, encoded: np.ndarray) -> np.ndarray | None:
-        h, w = encoded.shape[:2]
+    def _fit(self, bgr: np.ndarray) -> np.ndarray | None:
+        h, w = bgr.shape[:2]
         if w > self.analysis_width:
             size = (self.analysis_width, max(1, round(h * self.analysis_width / w)))
-            encoded = cv2.resize(encoded, size, interpolation=cv2.INTER_AREA)
-        if float(encoded.reshape(-1, 3).std(axis=0).max()) < 1e-3:
+            bgr = cv2.resize(bgr, size, interpolation=cv2.INTER_AREA)
+        if float(bgr.reshape(-1, 3).std(axis=0).max()) < 0.5:
             return None  # a flat frame has no contrast to preserve
         # cv2.decolor returns an all-zero image when a channel hits exactly
         # 0 or 255 (found by testing OpenCV 5.0), so keep it just inside.
-        bgr = np.clip(np.round(encoded[..., ::-1] * 255), 1, 254).astype(np.uint8)
+        bgr = np.clip(bgr, 1, 254)
         grey, _ = cv2.decolor(bgr)
         if grey.max() == grey.min():
             return None
+        # Our addition: cv2.decolor sometimes returns brightness the wrong way
+        # round (dark things light), and which way varies between frames. Keep
+        # its contrast but orient it like ordinary luminance.
+        luma = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        if luma.std() > 0 and np.corrcoef(grey.ravel(), luma.ravel())[0, 1] < 0:
+            grey = 255 - grey
         x = _features(bgr[..., ::-1].astype(np.float32) / 255).reshape(-1, 10)
         coef = np.linalg.lstsq(x, grey.reshape(-1).astype(np.float32) / 255, rcond=None)[0]
-        return coef if np.all(np.isfinite(coef)) else None
+        return coef.astype(np.float32) if np.all(np.isfinite(coef)) else None
 
     def apply(self, img: np.ndarray) -> np.ndarray:
-        encoded = srgb_encode(np.clip(img, 0.0, 1.0)).astype(np.float32)
-        fresh = self._fit(encoded)
-        if fresh is not None:
-            if self.coefficients is None:
-                self.coefficients = fresh
-            else:
-                self.coefficients = (1 - self.smoothing) * self.coefficients + self.smoothing * fresh
+        bgr = linear_to_bgr(img)
+        if self._frames % self.refit_every == 0:
+            fresh = self._fit(bgr)
+            if fresh is not None:
+                if self.coefficients is None:
+                    self.coefficients = fresh
+                else:
+                    self.coefficients = (1 - self.smoothing) * self.coefficients + self.smoothing * fresh
+        self._frames += 1
 
         if self.coefficients is None:
             grey = luminance(img)
         else:
-            grey = srgb_decode(np.clip(_features(encoded) @ self.coefficients.astype(np.float32), 0, 1))
-        return np.repeat(grey.astype(np.float32)[..., None], 3, axis=-1)
+            encoded = _evaluate(bgr[..., ::-1].astype(np.float32) * np.float32(1 / 255), self.coefficients)
+            grey = srgb8_to_linear(np.clip(encoded * 255 + 0.5, 0, 255).astype(np.uint8))
+        return np.repeat(grey[..., None], 3, axis=-1)
