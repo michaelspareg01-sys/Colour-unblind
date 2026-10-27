@@ -99,3 +99,18 @@ def test_variable_frame_rate_keeps_duration_and_audio(tmp_path):
     process_video(src, out, FrameProcessor("cat", "simulate"), progress=False)
     assert abs(duration(out, "v:0") - 4.0) < 0.3
     assert abs(duration(out, "a:0") - 4.0) < 0.2
+
+
+@needs_ffmpeg
+def test_progress_on_variable_frame_rate_input_reaches_the_end(tmp_path, capsys):
+    import re
+    src = tmp_path / "vfr.mkv"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error",
+                    "-f", "lavfi", "-i", "testsrc=size=160x90:rate=30:duration=2",
+                    "-f", "lavfi", "-i", "testsrc=size=160x90:rate=5:duration=2",
+                    "-filter_complex", "[0:v][1:v]concat=n=2:v=1[v]", "-map", "[v]",
+                    "-fps_mode", "vfr", "-pix_fmt", "yuv420p", str(src)], check=True)
+    process_video(src, tmp_path / "out.mp4", FrameProcessor("cat", "simulate"), progress=True)
+    err = capsys.readouterr().err
+    percents = [int(p) for p in re.findall(r"(\d+)%", err)]
+    assert percents and 90 <= max(percents) <= 100

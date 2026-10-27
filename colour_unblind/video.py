@@ -151,8 +151,10 @@ def _process(cap, source: Path, output: Path, processor: FrameProcessor, progres
                     writer.write(out)
                 written = target + 1
             if progress and decoded % 10 == 0:
-                of = f"/{total}" if total > 0 else ""
-                print(f"\rprocessed {decoded}{of} frames", end="", file=sys.stderr, flush=True)
+                # Measure by output time, not frames read: variable-frame-rate
+                # files have fewer frames than their (estimated) frame count.
+                done = f"{min(99, 100 * written // total)}%" if total > 0 else f"{written / fps:.0f} s"
+                print(f"\rprocessing: {done}", end="", file=sys.stderr, flush=True)
             ok, frame = cap.read()
         writer.close()
         os.replace(partial, output)
@@ -161,7 +163,7 @@ def _process(cap, source: Path, output: Path, processor: FrameProcessor, progres
         partial.unlink(missing_ok=True)
         raise
     if progress:
-        print(f"\rprocessed {decoded} frames -> {output}", file=sys.stderr)
+        print(f"\rprocessing: 100% -> {output}", file=sys.stderr)
     # ``written`` counts output time slots, so VFR sources compare fairly. The
     # 90% margin allows for the container's frame count being an estimate.
     if total > 0 and written < 0.9 * total:
